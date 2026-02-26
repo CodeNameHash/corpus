@@ -1,6 +1,0 @@
-* { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { background: #F5F4F0; }
-button { cursor: pointer; }
-button:focus { outline: none; }
-.noscroll::-webkit-scrollbar { display: none; }
-.noscroll { -ms-overflow-style: none; scrollbar-width: none; }
