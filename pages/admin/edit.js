@@ -465,22 +465,28 @@ function CasesEditor({ adminPw }) {
             <Field label="Year" value={String(c.year || '')} onChange={v => update('year', parseInt(v) || v)} single />
             <Field label="Court" value={c.court} onChange={v => update('court', v)} single />
           </div>
-          <Field label="Citation" value={c.cite} onChange={v => update('cite', v)} single />
-          <Field label="Summary" value={c.summary} onChange={v => update('summary', v)} rows={6} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <Field label="Citation" value={c.cite} onChange={v => update('cite', v)} single />
+            <Field label="Decision URL (link to full opinion)" value={c.decision_url || ''} onChange={v => update('decision_url', v)} single hint="e.g. https://courts.delaware.gov/..." />
+          </div>
+          <Field label="Category ID" value={c.category_id || ''} onChange={v => update('category_id', v)} single hint="e.g. cat-delaware, cat-mac — from Folders & Categories" />
+          <Field label="Summary" value={c.summary} onChange={v => update('summary', v)} rows={5} />
           <ArrayField label="Holdings (one per line)" value={c.holdings} onChange={v => update('holdings', v)} />
+          <Field label="Full Decision Text" value={c.full_decision || ''} onChange={v => update('full_decision', v)} rows={16} hint="Paste full opinion text here. Rendered on the case page." />
           <ArrayField label="Provisions (provision IDs, one per line)" value={c.provisions} onChange={v => update('provisions', v)} hint="e.g. structure, mae, termination" />
           <ArrayField label="Terms (term IDs, one per line)" value={c.terms} onChange={v => update('terms', v)} />
+          {/* Embed syntax reminder */}
+          <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
+            <div style={{ fontFamily: F.ui, fontSize: 10, fontWeight: 700, color: C.inkLight, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8 }}>Embed this case in any Explainer body</div>
+            <div style={{ fontFamily: F.mono, fontSize: 13, color: C.caseText, userSelect: 'all' }}>
+              {`[[case:${c.id || 'case-id'}]]`}
+            </div>
+            <div style={{ fontFamily: F.ui, fontSize: 11, color: C.inkLight, marginTop: 6 }}>Paste this token anywhere in an Explainer body — it renders as an expandable inline card with holdings.</div>
+          </div>
           <div style={{ display: 'flex', gap: 10 }}>
             <SaveBtn onClick={save} saved={saved} />
             <DeleteBtn onClick={remove} />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ConceptsEditor({ adminPw }) {
+          </div>({ adminPw }) {
   const initialConcepts = Object.values(CONCEPTS);
   const [concepts, setConcepts] = useState(initialConcepts);
   const [selected, setSelected] = useState(initialConcepts[0]?.id || null);
@@ -533,10 +539,12 @@ function ConceptsEditor({ adminPw }) {
             <Field label="Title" value={concept.title} onChange={v => update('title', v)} single />
             <Field label="Slug (URL path)" value={concept.slug} onChange={v => update('slug', v)} single />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: 12 }}>
-            <Field label="Category" value={concept.category} onChange={v => update('category', v)} single hint="e.g. merger-structures" />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 80px', gap: 12 }}>
+            <Field label="Category ID (folder)" value={concept.category_id || concept.category || ''} onChange={v => update('category_id', v)} single hint="e.g. cat-merger-structures — from Folders & Categories" />
+            <Field label="Category slug (legacy)" value={concept.category} onChange={v => update('category', v)} single hint="e.g. merger-structures" />
             <Field label="Order" value={String(concept.sort_order || '')} onChange={v => update('sort_order', parseInt(v) || 0)} single />
           </div>
+          <ArrayField label="Folder path (breadcrumb labels, one per line)" value={concept.folder_path || []} onChange={v => update('folder_path', v)} hint="e.g. Merger Structures / Triangular Mergers — display only" />
           <Field label="Summary (one line)" value={concept.summary} onChange={v => update('summary', v)} single />
           <Field label="Definition" value={concept.definition} onChange={v => update('definition', v)} rows={4} />
           <ArrayField label="Mechanics (one step per line)" value={concept.mechanics} onChange={v => update('mechanics', v)} />
@@ -547,6 +555,14 @@ function ConceptsEditor({ adminPw }) {
           <ArrayField label="Provision IDs (one per line)" value={concept.provision_ids} onChange={v => update('provision_ids', v)} hint="e.g. structure, mae" />
           <ArrayField label="Related Concepts (slugs, one per line)" value={concept.related_concepts} onChange={v => update('related_concepts', v)} />
           <ArrayField label="Related Cases (case IDs, one per line)" value={concept.related_cases} onChange={v => update('related_cases', v)} />
+          {/* Embed syntax reminder */}
+          <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
+            <div style={{ fontFamily: F.ui, fontSize: 10, fontWeight: 700, color: C.inkLight, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8 }}>Embed this concept in any Explainer body</div>
+            <div style={{ fontFamily: F.mono, fontSize: 13, color: C.accent, userSelect: 'all' }}>
+              {`[[concept:${concept.slug || 'your-slug'}]]`}
+            </div>
+            <div style={{ fontFamily: F.ui, fontSize: 11, color: C.inkLight, marginTop: 6 }}>Paste this token anywhere in an Explainer body — it renders as an expandable inline card.</div>
+          </div>
           <div style={{ display: 'flex', gap: 10 }}>
             <SaveBtn onClick={save} saved={saved} />
             <DeleteBtn onClick={remove} />
@@ -590,6 +606,7 @@ export default function AdminEdit() {
             <span style={{ fontFamily: F.ui, fontSize: 11, fontWeight: 700, color: C.accent, background: '#FFF3E0', borderRadius: 4, padding: '3px 8px' }}>ADMIN</span>
           </div>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <a href="/admin/structure" style={{ fontFamily: F.ui, fontSize: 12, color: C.inkLight, textDecoration: 'none' }}>Provisions & Folders →</a>
             <a href="/" target="_blank" style={{ fontFamily: F.ui, fontSize: 12, color: C.inkLight, textDecoration: 'none' }}>View site →</a>
             <button onClick={() => { sessionStorage.removeItem('corpus_admin_pw'); router.push('/admin/login'); }}
               style={{ fontFamily: F.ui, fontSize: 12, color: C.inkLight, background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '6px 12px', cursor: 'pointer' }}>Sign out</button>

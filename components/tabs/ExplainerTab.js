@@ -1,5 +1,12 @@
 import { EXPLAINERS } from '../../data/explainers';
+import { CONCEPTS } from '../../data/concepts';
+import { CASES } from '../../data/cases';
 import { C, F } from '../../data/tokens';
+import InlineEmbed from '../InlineEmbed';
+
+// Build lookup maps for inline embeds
+const conceptsMap = Object.fromEntries(Object.values(CONCEPTS).map(c => [c.slug, c]));
+const casesMap = CASES;
 
 export default function ExplainerTab({ provisionId, level }) {
   const data = EXPLAINERS[provisionId]?.[level];
@@ -10,10 +17,8 @@ export default function ExplainerTab({ provisionId, level }) {
   );
   return (
     <div style={{ maxWidth: 760 }}>
-      <h2 style={{ fontFamily: F.display, fontSize: 28, fontWeight: 700, color: C.ink, lineHeight: 1.2, marginBottom: 20 }}>{data.headline}</h2>
-      {data.body.split('\n\n').map((para, i) => (
-        <p key={i} style={{ fontFamily: F.body, fontSize: 15, color: C.inkMid, lineHeight: 1.85, marginBottom: 20 }}>{para}</p>
-      ))}
+      <h2 style={{ fontFamily: F.display, fontSize: 28, fontWeight: 700, color: C.ink, lineHeight: 1.2, marginBottom: 24 }}>{data.headline}</h2>
+      <InlineEmbed text={data.body} concepts={conceptsMap} cases={casesMap} />
     </div>
   );
 }
