@@ -245,6 +245,80 @@ function CasePicker({ value = [], onChange, onCreateNew, allCases }) {
   );
 }
 
+function TermPicker({ value = [], onChange, allTerms, exclude }) {
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
+
+  const available = allTerms.filter(t => t.id !== exclude);
+  const filtered = available.filter(t =>
+    t.term.toLowerCase().includes(search.toLowerCase())
+  );
+
+  function toggle(id) {
+    onChange(value.includes(id) ? value.filter(v => v !== id) : [...value, id]);
+  }
+
+  const selected = value.map(id => allTerms.find(t => t.id === id)).filter(Boolean);
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <Label>Related Terms</Label>
+      {selected.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+          {selected.map(t => (
+            <span key={t.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', background: '#F5F0FF', border: '1px solid #C8B8F0', borderRadius: 20, fontFamily: F.ui, fontSize: 12, fontWeight: 600, color: '#5A3EA1' }}>
+              {t.term}
+              <span onClick={() => toggle(t.id)} style={{ cursor: 'pointer', opacity: 0.5, fontSize: 14, lineHeight: 1 }}>×</span>
+            </span>
+          ))}
+        </div>
+      )}
+      <div style={{ position: 'relative' }}>
+        <input value={search} onChange={e => setSearch(e.target.value)}
+          onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
+          placeholder="Search terms…"
+          style={{ width: '100%', padding: '8px 11px', fontFamily: F.ui, fontSize: 13, color: C.ink, background: C.white, border: `1px solid ${C.border}`, borderRadius: 7, outline: 'none', boxSizing: 'border-box' }} />
+        {open && (
+          <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: C.white, border: `1px solid ${C.border}`, borderRadius: 7, boxShadow: '0 4px 16px rgba(0,0,0,0.08)', maxHeight: 200, overflowY: 'auto', marginTop: 2 }}>
+            {filtered.length === 0
+              ? <div style={{ padding: '11px 13px', fontFamily: F.ui, fontSize: 12, color: C.inkFaint }}>No match</div>
+              : filtered.map(t => (
+                  <div key={t.id} onClick={() => { toggle(t.id); setSearch(''); }}
+                    style={{ padding: '8px 13px', cursor: 'pointer', background: value.includes(t.id) ? '#F5F0FF' : 'transparent', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ fontFamily: F.ui, fontSize: 13, fontWeight: 600, color: C.ink }}>{t.term}</div>
+                    {value.includes(t.id) && <span style={{ color: '#5A3EA1' }}>✓</span>}
+                  </div>
+                ))
+            }
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProvisionPicker({ value = [], onChange }) {
+  function toggle(id) {
+    onChange(value.includes(id) ? value.filter(v => v !== id) : [...value, id]);
+  }
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <Label>Provisions</Label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {PROVISIONS.map(p => (
+          <span key={p.id} onClick={() => toggle(p.id)}
+            style={{ padding: '4px 10px', borderRadius: 20, fontFamily: F.ui, fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
+              background: value.includes(p.id) ? '#FFF3E0' : C.bg,
+              border: `1px solid ${value.includes(p.id) ? C.accent : C.border}`,
+              color: value.includes(p.id) ? C.accent : C.inkLight }}>
+            {p.title}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── AI Chat Panel ─────────────────────────────────────────────────────────────
 
 function AIChatPanel({ context, adminPw }) {
@@ -362,7 +436,7 @@ function QAEditor({ provision, level, adminPw, onNavigateTo, allConcepts, allCas
 
   function update(i, k, v) { setItems(items => items.map((item, idx) => idx === i ? { ...item, [k]: v } : item)); }
   function add() { setItems(items => [...items, { id: `${provision}-${level}-q${Date.now()}`, provision_id: provision, level, question: '', answer: '', concepts: [], cases: [] }]); }
-  async function save() { setError(null); try { for (const item of items) await apiSave('qa', item, adminPw); setSaved(true); setTimeout(() => setSaved(false), 2000); } catch (e) { setError(e.message); } }
+  async function save() { setError(null); try { for (const item of items) await apiSave('qa', { ...item, provision_id: item.provision_id || provision, level: item.level || level }, adminPw); setSaved(true); setTimeout(() => setSaved(false), 2000); } catch (e) { setError(e.message); } }
   async function remove(item) { await apiDelete('qa', item.id, adminPw); setItems(items => items.filter(i => i.id !== item.id)); }
 
   if (loading) return <div style={{ fontFamily: F.ui, fontSize: 13, color: C.inkLight, padding: 20 }}>Loading…</div>;
@@ -404,7 +478,7 @@ function WarStoriesEditor({ provision, level, adminPw, onNavigateTo, allConcepts
   }, []);
 
   function update(i, k, v) { setItems(items => items.map((item, idx) => idx === i ? { ...item, [k]: v } : item)); }
-  async function save() { setError(null); try { for (const item of items) await apiSave('war_stories', item, adminPw); setSaved(true); setTimeout(() => setSaved(false), 2000); } catch (e) { setError(e.message); } }
+  async function save() { setError(null); try { for (const item of items) await apiSave('war_stories', { ...item, provision_id: item.provision_id || provision, level: item.level || level }, adminPw); setSaved(true); setTimeout(() => setSaved(false), 2000); } catch (e) { setError(e.message); } }
   async function remove(item) { await apiDelete('war_stories', item.id, adminPw); setItems(items => items.filter(i => i.id !== item.id)); }
 
   if (loading) return <div style={{ fontFamily: F.ui, fontSize: 13, color: C.inkLight, padding: 20 }}>Loading…</div>;
@@ -449,7 +523,7 @@ function NegotiationEditor({ provision, adminPw, onNavigateTo, allConcepts, allC
   }, []);
 
   function update(i, k, v) { setItems(items => items.map((item, idx) => idx === i ? { ...item, [k]: v } : item)); }
-  async function save() { setError(null); try { for (const item of items) await apiSave('negotiation_points', item, adminPw); setSaved(true); setTimeout(() => setSaved(false), 2000); } catch (e) { setError(e.message); } }
+  async function save() { setError(null); try { for (const item of items) await apiSave('negotiation_points', { ...item, provision_id: item.provision_id || provision }, adminPw); setSaved(true); setTimeout(() => setSaved(false), 2000); } catch (e) { setError(e.message); } }
 
   if (loading) return <div style={{ fontFamily: F.ui, fontSize: 13, color: C.inkLight, padding: 20 }}>Loading…</div>;
   return (
@@ -477,37 +551,59 @@ function NegotiationEditor({ provision, adminPw, onNavigateTo, allConcepts, allC
 function AnnotationsEditor({ provision, level, adminPw }) {
   const [dbClauses, setDbClauses] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [anns, setAnns] = useState({});
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     setLoading(true);
     (async () => {
       try {
         const mod = await import('../../lib/supabase');
-        const { data } = await mod.supabase.from('clauses').select('id, label, text')
+        // Load clauses
+        const { data: clauseRows } = await mod.supabase.from('clauses').select('id, label, text')
           .eq('provision_id', provision).order('sort_order', { ascending: true });
-        if (data?.length) { setDbClauses(data); }
+        if (clauseRows?.length) { setDbClauses(clauseRows); }
         else { setDbClauses(null); }
-      } catch { setDbClauses(null); }
+
+        // Load saved annotations from DB
+        const { data: annRows } = await mod.supabase.from('annotations').select('*')
+          .eq('provision_id', provision).eq('level', level);
+        if (annRows?.length) {
+          const out = {};
+          for (const row of annRows) out[row.clause_id] = { phrase: row.phrase || '', note: row.note || '' };
+          setAnns(out);
+        } else {
+          // Fall back to static annotations
+          const clauseData = CLAUSES[provision];
+          const items = clauseRows || clauseData?.items || [];
+          const out = {};
+          for (const item of items) out[item.id] = { phrase: item.annotations?.[level]?.phrase || '', note: item.annotations?.[level]?.note || '' };
+          setAnns(out);
+        }
+      } catch {
+        setDbClauses(null);
+        const clauseData = CLAUSES[provision];
+        const items = clauseData?.items || [];
+        const out = {};
+        for (const item of items) out[item.id] = { phrase: item.annotations?.[level]?.phrase || '', note: item.annotations?.[level]?.note || '' };
+        setAnns(out);
+      }
       setLoading(false);
     })();
-  }, [provision]);
+  }, [provision, level]);
 
   const clauseData = CLAUSES[provision];
   const items = dbClauses || clauseData?.items || [];
-  const [anns, setAnns] = useState({});
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    const out = {};
-    for (const item of items) out[item.id] = { phrase: item.annotations?.[level]?.phrase || '', note: item.annotations?.[level]?.note || '' };
-    setAnns(out);
-  }, [provision, level, dbClauses]);
 
   async function save() {
-    for (const clauseId of Object.keys(anns)) {
-      await apiSave('annotations', { id: `${provision}-${clauseId}-${level}`, provision_id: provision, clause_id: clauseId, level, ...anns[clauseId] }, adminPw);
-    }
-    setSaved(true); setTimeout(() => setSaved(false), 2000);
+    setError(null);
+    try {
+      for (const clauseId of Object.keys(anns)) {
+        await apiSave('annotations', { id: `${provision}-${clauseId}-${level}`, provision_id: provision, clause_id: clauseId, level, ...anns[clauseId] }, adminPw);
+      }
+      setSaved(true); setTimeout(() => setSaved(false), 2000);
+    } catch (e) { setError(e.message); }
   }
 
   if (loading) return <div style={{ fontFamily: F.body, fontSize: 14, color: C.inkLight, padding: '20px 0' }}>Loading clauses…</div>;
@@ -515,6 +611,7 @@ function AnnotationsEditor({ provision, level, adminPw }) {
 
   return (
     <div>
+      {error && <div style={{ fontFamily: F.ui, fontSize: 12, color: '#c0392b', background: '#fdf0ef', border: '1px solid #e6b0aa', borderRadius: 6, padding: '8px 12px', marginBottom: 12 }}>⚠ {error}</div>}
       {items.map(item => (
         <div key={item.id} style={{ marginBottom: 14, padding: '14px 16px', background: anns[item.id]?.phrase ? '#FFFBF3' : C.white, border: `1px solid ${anns[item.id]?.phrase ? C.accent : C.border}`, borderRadius: 8 }}>
           <div style={{ fontFamily: F.ui, fontSize: 11, fontWeight: 700, color: C.accent, marginBottom: 8 }}>{item.label}</div>
@@ -818,10 +915,22 @@ function SourceDocumentsEditor({ adminPw }) {
   return null;
 }
 
-function DefinedTermsEditor({ adminPw }) {
+function DefinedTermsEditor({ adminPw, onNavigateTo, allCases }) {
   const [terms, setTerms] = useState(Object.values(DEFINED_TERMS));
   const [selected, setSelected] = useState(Object.values(DEFINED_TERMS)[0]?.id || null);
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.from('defined_terms').select('*').order('term');
+        if (data?.length) { setTerms(data); setSelected(s => data.find(t => t.id === s) ? s : data[0]?.id); }
+      } catch {}
+      setLoading(false);
+    })();
+  }, []);
+
   const term = terms.find(t => t.id === selected);
 
   function update(k, v) { setTerms(terms => terms.map(t => t.id === selected ? { ...t, [k]: v } : t)); }
@@ -831,6 +940,8 @@ function DefinedTermsEditor({ adminPw }) {
     setSaved(true); setTimeout(() => setSaved(false), 2000);
   }
   async function remove() { if (!confirm(`Delete "${term.term}"?`)) return; await apiDelete('defined_terms', term.id, adminPw); setTerms(t => t.filter(x => x.id !== selected)); setSelected(terms[0]?.id); }
+
+  if (loading) return <div style={{ fontFamily: F.ui, fontSize: 13, color: C.inkLight, padding: 20 }}>Loading…</div>;
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 16 }}>
@@ -853,9 +964,9 @@ function DefinedTermsEditor({ adminPw }) {
           <Field label="Term (must match clause text exactly)" value={term.term} onChange={v => update('term', v)} single />
           <Field label="Short definition (tooltip)" value={term.short || term.short_def} onChange={v => update('short', v)} rows={2} />
           <Field label="Long definition (term panel)" value={term.long || term.long_def} onChange={v => update('long', v)} rows={8} />
-          <ArrayField label="Appears in (provision IDs)" value={term.appears_in} onChange={v => update('appears_in', v)} hint="e.g. structure, mae" />
-          <ArrayField label="Related cases (case IDs)" value={term.related_cases} onChange={v => update('related_cases', v)} />
-          <ArrayField label="Related terms (term IDs)" value={term.related_terms} onChange={v => update('related_terms', v)} />
+          <ProvisionPicker value={term.appears_in || []} onChange={v => update('appears_in', v)} />
+          <CasePicker value={term.related_cases || []} onChange={v => update('related_cases', v)} onCreateNew={() => onNavigateTo?.('cases')} allCases={allCases} />
+          <TermPicker value={term.related_terms || []} onChange={v => update('related_terms', v)} allTerms={terms} exclude={term.id} />
           <div style={{ display: 'flex', gap: 8 }}><SaveBtn onClick={save} saved={saved} /><Btn variant="danger" onClick={remove}>Delete</Btn></div>
         </div>
       )}
@@ -870,6 +981,7 @@ function CasesEditor({ adminPw, prefillName, setCasesRef }) {
   const [selected, setSelected] = useState(Object.values(CASES)[0]?.id || null);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
 
   // Quick-add
   const [qName, setQName] = useState(prefillName || '');
@@ -879,6 +991,16 @@ function CasesEditor({ adminPw, prefillName, setCasesRef }) {
 
   // Expose setter so parent can sync allCases
   useEffect(() => { if (setCasesRef) setCasesRef(setCasesState); }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.from('cases').select('*').order('year', { ascending: false });
+        if (data?.length) { setCasesState(data); setSelected(s => data.find(x => x.id === s) ? s : data[0]?.id); }
+      } catch {}
+      setLoading(false);
+    })();
+  }, []);
 
   const c = cases.find(x => x.id === selected);
   function update(k, v) { setCasesState(cases => cases.map(x => x.id === selected ? { ...x, [k]: v } : x)); }
@@ -904,6 +1026,8 @@ function CasesEditor({ adminPw, prefillName, setCasesRef }) {
     setCasesState(cases => cases.filter(x => x.id !== selected));
     setSelected(cases[0]?.id);
   }
+
+  if (loading) return <div style={{ fontFamily: F.ui, fontSize: 13, color: C.inkLight, padding: 20 }}>Loading…</div>;
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '210px 1fr', gap: 16 }}>
@@ -989,15 +1113,26 @@ const CATEGORY_OPTIONS = [
   { id: 'cat-rw',                label: 'Reps & Warranties' },
 ];
 
-function ConceptsEditor({ adminPw, prefillTitle }) {
+function ConceptsEditor({ adminPw, prefillTitle, allCases }) {
   const [concepts, setConcepts] = useState(Object.values(CONCEPTS));
   const [selected, setSelected] = useState(Object.values(CONCEPTS)[0]?.id || null);
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   // Quick-add
   const [qTitle, setQTitle] = useState(prefillTitle || '');
   const [qCat, setQCat] = useState('cat-merger-structures');
   const [adding, setAdding] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.from('concepts').select('*').order('sort_order', { ascending: true });
+        if (data?.length) { setConcepts(data); setSelected(s => data.find(x => x.id === s) ? s : data[0]?.id); }
+      } catch {}
+      setLoading(false);
+    })();
+  }, []);
 
   const concept = concepts.find(x => x.id === selected);
   function update(k, v) { setConcepts(concepts => concepts.map(x => x.id === selected ? { ...x, [k]: v } : x)); }
@@ -1020,6 +1155,8 @@ function ConceptsEditor({ adminPw, prefillTitle }) {
     setConcepts(concepts => concepts.filter(x => x.id !== selected));
     setSelected(concepts[0]?.id);
   }
+
+  if (loading) return <div style={{ fontFamily: F.ui, fontSize: 13, color: C.inkLight, padding: 20 }}>Loading…</div>;
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '210px 1fr', gap: 16 }}>
@@ -1077,6 +1214,7 @@ function ConceptsEditor({ adminPw, prefillTitle }) {
               <Field label="Title" value={concept.title} onChange={v => update('title', v)} single />
               <Field label="Slug" value={concept.slug} onChange={v => update('slug', v)} single hint="URL path — change carefully" />
             </div>
+            <ArrayField label="Also Known As (alternative names, one per line)" value={concept.aliases || []} onChange={v => update('aliases', v)} hint="e.g. Merger Sub, Acquisition Subsidiary, Newco" />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 60px', gap: 10 }}>
               <div style={{ marginBottom: 16 }}>
                 <Label>Folder / Category</Label>
@@ -1089,7 +1227,7 @@ function ConceptsEditor({ adminPw, prefillTitle }) {
               <Field label="Order" value={String(concept.sort_order || '')} onChange={v => update('sort_order', parseInt(v) || 0)} single />
             </div>
             <Field label="Summary (one line — shown in lists and cards)" value={concept.summary} onChange={v => update('summary', v)} single />
-            <ArrayField label="Provision IDs (one per line)" value={concept.provision_ids} onChange={v => update('provision_ids', v)} hint="e.g. structure, mae" />
+            <ProvisionPicker value={concept.provision_ids || []} onChange={v => update('provision_ids', v)} />
           </Section>
 
           <Section title="Core Content">
@@ -1107,8 +1245,8 @@ function ConceptsEditor({ adminPw, prefillTitle }) {
           </Section>
 
           <Section title="Related Items" defaultOpen={false}>
-            <ArrayField label="Related Concepts (slugs)" value={concept.related_concepts} onChange={v => update('related_concepts', v)} />
-            <ArrayField label="Related Cases (case IDs)" value={concept.related_cases} onChange={v => update('related_cases', v)} />
+            <ConceptPicker value={concept.related_concepts || []} onChange={v => update('related_concepts', v)} onCreateNew={() => {}} allConcepts={concepts.filter(x => x.id !== concept.id)} />
+            <CasePicker value={concept.related_cases || []} onChange={v => update('related_cases', v)} onCreateNew={() => {}} allCases={allCases} />
           </Section>
 
           <EmbedToken prefix="concept" id={concept.slug} />
@@ -1215,9 +1353,9 @@ export default function AdminEdit() {
             {tab === 'war_stories'   && <WarStoriesEditor  key={`ws-${provision}-${level}`} provision={provision} level={level} adminPw={adminPw} onNavigateTo={navigateTo} allConcepts={allConcepts} allCases={allCases} />}
             {tab === 'negotiation'   && <NegotiationEditor key={`neg-${provision}`} provision={provision} adminPw={adminPw} onNavigateTo={navigateTo} allConcepts={allConcepts} allCases={allCases} />}
             {tab === 'annotations'   && <AnnotationsEditor key={`ann-${provision}-${level}`} provision={provision} level={level} adminPw={adminPw} />}
-            {tab === 'defined_terms' && <DefinedTermsEditor adminPw={adminPw} />}
+            {tab === 'defined_terms' && <DefinedTermsEditor adminPw={adminPw} onNavigateTo={navigateTo} allCases={allCases} />}
             {tab === 'cases'         && <CasesEditor adminPw={adminPw} prefillName={casePrefill} />}
-            {tab === 'concepts'      && <ConceptsEditor adminPw={adminPw} prefillTitle={conceptPrefill} />}
+            {tab === 'concepts'      && <ConceptsEditor adminPw={adminPw} prefillTitle={conceptPrefill} allCases={allCases} />}
           </div>
 
           <div style={{ width: '43%', padding: '20px 22px 20px 0', display: 'flex', flexDirection: 'column' }}>

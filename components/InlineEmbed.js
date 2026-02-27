@@ -25,6 +25,7 @@ function InlineConceptCard({ concept }) {
       >
         <span style={{ fontFamily: F.ui, fontSize: 11, fontWeight: 700, color: C.accent }}>CONCEPT</span>
         <span style={{ fontFamily: F.display, fontSize: 14, fontWeight: 700, color: C.ink }}>{concept.title}</span>
+        {concept.aliases?.length > 0 && <span style={{ fontFamily: F.ui, fontSize: 11, color: C.inkFaint, fontStyle: 'italic' }}>(aka {concept.aliases[0]})</span>}
         <span style={{ fontFamily: F.body, fontSize: 12, color: C.inkLight }}>— {concept.summary}</span>
         <span style={{ fontFamily: F.ui, fontSize: 14, color: C.accent, marginLeft: 4 }}>{open ? '▾' : '▸'}</span>
       </span>

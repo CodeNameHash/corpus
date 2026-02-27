@@ -39,6 +39,11 @@ export default function ConceptCard({ concept, defaultExpanded = false, showLink
             <div style={{ fontFamily: F.display, fontSize: 15, fontWeight: 700, color: C.ink }}>
               {concept.title}
             </div>
+            {concept.aliases?.length > 0 && (
+              <div style={{ fontFamily: F.ui, fontSize: 11, color: C.inkLight, marginTop: 2, fontStyle: 'italic' }}>
+                Also: {concept.aliases.join(', ')}
+              </div>
+            )}
             <div style={{ fontFamily: F.body, fontSize: 12, color: C.inkLight, marginTop: 2 }}>
               {concept.summary}
             </div>

@@ -56,6 +56,11 @@ export default function ConceptPage({ concept, siblings }) {
           <h1 style={{ fontFamily: F.display, fontSize: 36, fontWeight: 900, color: C.ink, margin: '0 0 8px 0', lineHeight: 1.15 }}>
             {concept.title}
           </h1>
+          {concept.aliases?.length > 0 && (
+            <div style={{ fontFamily: F.ui, fontSize: 13, color: C.inkLight, fontStyle: 'italic', marginBottom: 4 }}>
+              Also known as: {concept.aliases.join(', ')}
+            </div>
+          )}
           <p style={{ fontFamily: F.body, fontSize: 15, color: C.inkLight, margin: '0 0 40px 0', lineHeight: 1.6 }}>
             {concept.summary}
           </p>
