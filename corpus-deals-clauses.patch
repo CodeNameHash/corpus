@@ -1,0 +1,730 @@
+From c18ff0208721679885cfd898f2522d9b1a50ccdf Mon Sep 17 00:00:00 2001
+From: Claude <claude@corpus.dev>
+Date: Fri, 27 Feb 2026 00:33:15 +0000
+Subject: [PATCH] Add immutable deal documents + clause extraction system
+
+- deals table: stores full agreement text with SHA-256 hash, locked after import
+- clauses table: discrete text extracts with individual hashes, linked to provisions
+- Admin Source Docs tab: import agreement, select text, extract clauses
+- AnnotatedClauseTab: self-loads from DB with static fallback
+- AnnotationsEditor: loads DB clauses when available
+- Save API: supports deals, clauses, provisions, categories tables
+- Schema ordering: provisions -> deals -> clauses (FK dependencies)
+---
+ .gitignore                            |   1 +
+ components/tabs/AnnotatedClauseTab.js |  68 +++++-
+ lib/content.js                        |  58 +++++
+ pages/admin/edit.js                   | 330 +++++++++++++++++++++++++-
+ pages/api/admin/save.js               |   1 +
+ supabase/schema-additions.sql         |  79 ++++--
+ 6 files changed, 501 insertions(+), 36 deletions(-)
+
+diff --git a/.gitignore b/.gitignore
+index 04dd62d..57a2eab 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -20,3 +20,4 @@
+ 
+ # vercel
+ .vercel
++package-lock.json
+diff --git a/components/tabs/AnnotatedClauseTab.js b/components/tabs/AnnotatedClauseTab.js
+index 6aeded1..424d0e4 100644
+--- a/components/tabs/AnnotatedClauseTab.js
++++ b/components/tabs/AnnotatedClauseTab.js
+@@ -1,8 +1,14 @@
+-import { useState } from 'react';
++import { useState, useEffect } from 'react';
+ import { CLAUSES } from '../../data/clauses';
+ import { DEFINED_TERMS } from '../../data/definedTerms';
+ import { C, F } from '../../data/tokens';
+ 
++const HAS_SUPABASE = !!(
++  typeof window !== 'undefined' &&
++  process.env.NEXT_PUBLIC_SUPABASE_URL &&
++  !process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder')
++);
++
+ function TermSpan({ termId, label, onClick }) {
+   const [hover, setHover] = useState(false);
+   return (
+@@ -18,7 +24,6 @@ function TermSpan({ termId, label, onClick }) {
+ function renderText(text, onTermClick, ann, isOpen, onAnnClick) {
+   if (!text) return text;
+ 
+-  // Split on annotation phrase first
+   let parts = [text];
+   if (ann?.phrase) {
+     const newParts = [];
+@@ -33,7 +38,6 @@ function renderText(text, onTermClick, ann, isOpen, onAnnClick) {
+     parts = newParts;
+   }
+ 
+-  // Then split on defined terms
+   const termIds = Object.keys(DEFINED_TERMS);
+   termIds.sort((a, b) => DEFINED_TERMS[b].term.length - DEFINED_TERMS[a].term.length);
+   for (const tid of termIds) {
+@@ -72,11 +76,55 @@ function renderText(text, onTermClick, ann, isOpen, onAnnClick) {
+   });
+ }
+ 
+-export default function AnnotatedClauseTab({ provisionId, level, onTermClick }) {
++export default function AnnotatedClauseTab({ provisionId, level, onTermClick, clauses: propClauses, annotations: propAnnotations, sectionLabel }) {
+   const [openAnnotation, setOpenAnnotation] = useState(null);
+-  const data = CLAUSES[provisionId];
++  const [dbClauses, setDbClauses] = useState(null);
++  const [dbAnnotations, setDbAnnotations] = useState(null);
++  const [loading, setLoading] = useState(HAS_SUPABASE);
++
++  useEffect(() => {
++    if (!HAS_SUPABASE) return;
++    setLoading(true);
++    (async () => {
++      try {
++        const mod = await import('../../lib/supabase');
++        const { data: clauseRows } = await mod.supabase.from('clauses').select('id, label, text, provision_id')
++          .eq('provision_id', provisionId).order('sort_order', { ascending: true });
++        if (clauseRows?.length) setDbClauses(clauseRows);
++
++        const { data: annRows } = await mod.supabase.from('annotations').select('*')
++          .eq('provision_id', provisionId);
++        if (annRows?.length) {
++          const out = {};
++          for (const row of annRows) {
++            if (!out[row.clause_id]) out[row.clause_id] = {};
++            out[row.clause_id][row.level] = { phrase: row.phrase, note: row.note };
++          }
++          setDbAnnotations(out);
++        }
++      } catch {}
++      setLoading(false);
++    })();
++  }, [provisionId]);
++
++  // Priority: prop clauses > DB clauses > static file
++  const staticData = CLAUSES[provisionId];
++  const items = propClauses?.length ? propClauses : (dbClauses?.length ? dbClauses : (staticData?.items || []));
++  const section = sectionLabel || staticData?.section;
++  const annotations = propAnnotations || dbAnnotations;
++
++  function getAnnotation(item) {
++    if (annotations?.[item.id]?.[level]) return annotations[item.id][level];
++    return item.annotations?.[level] || null;
++  }
++
++  if (loading) return (
++    <div style={{ padding: '60px 0', textAlign: 'center' }}>
++      <div style={{ fontFamily: F.ui, fontSize: 14, color: C.inkLight }}>Loading clauses…</div>
++    </div>
++  );
+ 
+-  if (!data) return (
++  if (!items.length) return (
+     <div style={{ padding: '60px 0', textAlign: 'center' }}>
+       <div style={{ fontFamily: F.display, fontSize: 22, color: C.inkLight }}>Coming Soon</div>
+     </div>
+@@ -84,15 +132,17 @@ export default function AnnotatedClauseTab({ provisionId, level, onTermClick })
+ 
+   return (
+     <div style={{ maxWidth: 760 }}>
+-      <div style={{ fontFamily: F.ui, fontSize: 11, fontWeight: 600, letterSpacing: 2, color: C.inkLight, textTransform: 'uppercase', marginBottom: 12 }}>{data.section}</div>
++      {section && (
++        <div style={{ fontFamily: F.ui, fontSize: 11, fontWeight: 600, letterSpacing: 2, color: C.inkLight, textTransform: 'uppercase', marginBottom: 12 }}>{section}</div>
++      )}
+ 
+       <div style={{ fontFamily: F.ui, fontSize: 12, color: C.inkLight, marginBottom: 24 }}>
+         <span style={{ borderBottom: `2px solid ${C.accent}`, paddingBottom: 1 }}>Double-underlined phrases</span>
+         {' '}are annotations — click to expand
+       </div>
+ 
+-      {data.items.map(item => {
+-        const ann = item.annotations?.[level];
++      {items.map(item => {
++        const ann = getAnnotation(item);
+         const annKey = `${item.id}-${level}`;
+         const isOpen = openAnnotation === annKey;
+ 
+diff --git a/lib/content.js b/lib/content.js
+index 0176f02..adb4dcc 100644
+--- a/lib/content.js
++++ b/lib/content.js
+@@ -198,6 +198,7 @@ export async function getConcept(slug) {
+ const ALLOWED_TABLES = [
+   'explainers', 'qa', 'war_stories', 'negotiation_points',
+   'annotations', 'defined_terms', 'cases', 'concepts',
++  'deals', 'clauses', 'provisions',
+ ];
+ 
+ export async function saveContent(table, record) {
+@@ -219,6 +220,63 @@ export async function deleteContent(table, id) {
+   return true;
+ }
+ 
++// ─── Deals (immutable source documents) ───────────────────────────────────────
++
++export async function getDeal(dealId) {
++  if (HAS_SUPABASE) {
++    try {
++      const client = await db();
++      const { data } = await client.from('deals').select('*').eq('id', dealId).single();
++      if (data) return data;
++    } catch {}
++  }
++  return null;
++}
++
++export async function getDeals() {
++  if (HAS_SUPABASE) {
++    try {
++      const client = await db();
++      const { data } = await client.from('deals')
++        .select('id, title, text_hash, source_url, filing_date, parties, locked, created_at')
++        .order('created_at', { ascending: false });
++      if (data?.length) return data;
++    } catch {}
++  }
++  return [];
++}
++
++// ─── Clauses (windows into deal.full_text) ────────────────────────────────
++
++export async function getClauses(provisionId) {
++  if (HAS_SUPABASE) {
++    try {
++      const client = await db();
++      const { data: clauses } = await client.from('clauses').select('*')
++        .eq('provision_id', provisionId)
++        .order('sort_order', { ascending: true });
++      if (clauses?.length) {
++        // Fetch the deal text to resolve the windows
++        const dealId = clauses[0].deal_id;
++        const { data: deal } = await client.from('deals').select('full_text').eq('id', dealId).single();
++        if (deal) {
++          return clauses.map(c => ({
++            id: c.id,
++            label: c.label,
++            text: deal.full_text.slice(c.start_char, c.end_char),
++            start_char: c.start_char,
++            end_char: c.end_char,
++          }));
++        }
++      }
++    } catch {}
++  }
++  // Fall back to static CLAUSES
++  const clauseData = CLAUSES[provisionId];
++  if (!clauseData) return [];
++  return clauseData.items || [];
++}
++
+ // ─── Provisions ───────────────────────────────────────────────────────────────
+ 
+ export async function getProvisions() {
+diff --git a/pages/admin/edit.js b/pages/admin/edit.js
+index 3d82874..6652803 100644
+--- a/pages/admin/edit.js
++++ b/pages/admin/edit.js
+@@ -13,9 +13,9 @@ import { CLAUSES } from '../../data/clauses';
+ import { GOOGLE_FONTS, C, F } from '../../data/tokens';
+ 
+ const LEVELS = ['junior', 'mid', 'senior'];
+-const MAIN_TABS = ['explainer', 'qa', 'war_stories', 'negotiation', 'annotations', 'defined_terms', 'cases', 'concepts'];
++const MAIN_TABS = ['source_docs', 'explainer', 'qa', 'war_stories', 'negotiation', 'annotations', 'defined_terms', 'cases', 'concepts'];
+ const TAB_LABELS = {
+-  explainer: 'Explainer', qa: 'Q&A', war_stories: 'War Stories',
++  source_docs: 'Source Docs', explainer: 'Explainer', qa: 'Q&A', war_stories: 'War Stories',
+   negotiation: 'Negotiation', annotations: 'Annotations',
+   defined_terms: 'Defined Terms', cases: 'Cases', concepts: 'Concepts',
+ };
+@@ -410,14 +410,33 @@ function NegotiationEditor({ provision, adminPw, onNavigateTo, allConcepts, allC
+ }
+ 
+ function AnnotationsEditor({ provision, level, adminPw }) {
++  const [dbClauses, setDbClauses] = useState(null);
++  const [loading, setLoading] = useState(true);
++
++  useEffect(() => {
++    setLoading(true);
++    (async () => {
++      try {
++        const mod = await import('../../lib/supabase');
++        const { data } = await mod.supabase.from('clauses').select('id, label, text')
++          .eq('provision_id', provision).order('sort_order', { ascending: true });
++        if (data?.length) { setDbClauses(data); }
++        else { setDbClauses(null); }
++      } catch { setDbClauses(null); }
++      setLoading(false);
++    })();
++  }, [provision]);
++
+   const clauseData = CLAUSES[provision];
+-  const items = clauseData?.items || [];
+-  const [anns, setAnns] = useState(() => {
++  const items = dbClauses || clauseData?.items || [];
++  const [anns, setAnns] = useState({});
++  const [saved, setSaved] = useState(false);
++
++  useEffect(() => {
+     const out = {};
+     for (const item of items) out[item.id] = { phrase: item.annotations?.[level]?.phrase || '', note: item.annotations?.[level]?.note || '' };
+-    return out;
+-  });
+-  const [saved, setSaved] = useState(false);
++    setAnns(out);
++  }, [provision, level, dbClauses]);
+ 
+   async function save() {
+     for (const clauseId of Object.keys(anns)) {
+@@ -426,7 +445,8 @@ function AnnotationsEditor({ provision, level, adminPw }) {
+     setSaved(true); setTimeout(() => setSaved(false), 2000);
+   }
+ 
+-  if (!clauseData) return <div style={{ fontFamily: F.body, fontSize: 14, color: C.inkLight, padding: '20px 0' }}>No clauses defined for this provision yet.</div>;
++  if (loading) return <div style={{ fontFamily: F.body, fontSize: 14, color: C.inkLight, padding: '20px 0' }}>Loading clauses…</div>;
++  if (!items.length) return <div style={{ fontFamily: F.body, fontSize: 14, color: C.inkLight, padding: '20px 0' }}>No clauses defined for this provision yet. Import a source document and extract clauses first.</div>;
+ 
+   return (
+     <div>
+@@ -443,6 +463,296 @@ function AnnotationsEditor({ provision, level, adminPw }) {
+   );
+ }
+ 
++// ─── Source Documents (deals + clause extraction) ───────────────────────────
++
++async function sha256(text) {
++  const encoder = new TextEncoder();
++  const data = encoder.encode(text);
++  const hash = await crypto.subtle.digest('SHA-256', data);
++  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
++}
++
++function SourceDocumentsEditor({ adminPw }) {
++  const [deals, setDeals] = useState([]);
++  const [selectedDeal, setSelectedDeal] = useState(null);
++  const [dealText, setDealText] = useState(null);
++  const [clauses, setClauses] = useState([]);
++  const [phase, setPhase] = useState('list'); // 'list' | 'import' | 'view' | 'extract'
++  const [saved, setSaved] = useState(false);
++  const docRef = useRef(null);
++
++  // Import form state
++  const [importForm, setImportForm] = useState({ title: '', parties: '', filing_date: '', source_url: '', full_text: '' });
++
++  // Extract form state
++  const [extractForm, setExtractForm] = useState({ label: '', text: '', provision_id: 'structure' });
++
++  useEffect(() => { loadDeals(); }, []);
++
++  async function loadDeals() {
++    try {
++      const res = await fetch('/api/admin/save', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminPw}` },
++        body: JSON.stringify({ table: 'deals', _action: 'list' }) });
++    } catch {}
++    // Use direct supabase read since list isn't in save API
++    try {
++      const mod = await import('../../lib/supabase');
++      const { data } = await mod.supabase.from('deals')
++        .select('id, title, parties, filing_date, source_url, text_hash, locked, created_at')
++        .order('created_at', { ascending: false });
++      if (data) setDeals(data);
++    } catch {}
++  }
++
++  async function loadDealText(dealId) {
++    try {
++      const mod = await import('../../lib/supabase');
++      const { data } = await mod.supabase.from('deals').select('id, full_text, text_hash').eq('id', dealId).single();
++      if (data) setDealText(data);
++    } catch {}
++  }
++
++  async function loadClauses(dealId) {
++    try {
++      const mod = await import('../../lib/supabase');
++      const { data } = await mod.supabase.from('clauses').select('*')
++        .eq('deal_id', dealId).order('provision_id').order('sort_order', { ascending: true });
++      if (data) setClauses(data);
++    } catch { setClauses([]); }
++  }
++
++  async function importDeal() {
++    const text = importForm.full_text.trim();
++    if (!text || !importForm.title.trim()) return alert('Title and full text are required.');
++    const hash = await sha256(text);
++    const id = importForm.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '');
++    const record = {
++      id, title: importForm.title.trim(), parties: importForm.parties.trim(),
++      filing_date: importForm.filing_date.trim(), source_url: importForm.source_url.trim(),
++      full_text: text, text_hash: hash, locked: true,
++    };
++    try {
++      await apiSave('deals', record, adminPw);
++      setSaved(true); setTimeout(() => setSaved(false), 2000);
++      await loadDeals();
++      setSelectedDeal(record);
++      setDealText({ id, full_text: text, text_hash: hash });
++      await loadClauses(id);
++      setPhase('view');
++      setImportForm({ title: '', parties: '', filing_date: '', source_url: '', full_text: '' });
++    } catch (e) { alert('Save failed: ' + e.message); }
++  }
++
++  async function selectDeal(deal) {
++    setSelectedDeal(deal);
++    await loadDealText(deal.id);
++    await loadClauses(deal.id);
++    setPhase('view');
++  }
++
++  function captureSelection() {
++    const sel = window.getSelection();
++    const text = sel?.toString()?.trim();
++    if (!text) return alert('Select text in the document first.');
++    setExtractForm(f => ({ ...f, text }));
++    setPhase('extract');
++  }
++
++  async function saveClause() {
++    const text = extractForm.text.trim();
++    if (!text || !extractForm.label.trim()) return alert('Label and text are required.');
++    const hash = await sha256(text);
++    const existingForProvision = clauses.filter(c => c.provision_id === extractForm.provision_id);
++    const id = `${selectedDeal.id}-${extractForm.provision_id}-c${existingForProvision.length + 1}`;
++    const record = {
++      id, deal_id: selectedDeal.id, provision_id: extractForm.provision_id,
++      label: extractForm.label.trim(), text, text_hash: hash,
++      sort_order: existingForProvision.length + 1, locked: true,
++    };
++    try {
++      await apiSave('clauses', record, adminPw);
++      setSaved(true); setTimeout(() => setSaved(false), 2000);
++      await loadClauses(selectedDeal.id);
++      setExtractForm({ label: '', text: '', provision_id: extractForm.provision_id });
++      setPhase('view');
++    } catch (e) { alert('Save failed: ' + e.message); }
++  }
++
++  async function deleteClause(id) {
++    if (!confirm('Delete this clause? The text can be re-extracted from the source document.')) return;
++    try {
++      await apiDelete('clauses', id, adminPw);
++      await loadClauses(selectedDeal.id);
++    } catch (e) { alert('Delete failed: ' + e.message); }
++  }
++
++  // ─── Deal list ──────────
++  if (phase === 'list') {
++    return (
++      <div>
++        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
++          <div style={{ fontFamily: F.display, fontSize: 18, color: C.ink }}>Source Documents</div>
++          <Btn variant="accent" onClick={() => setPhase('import')}>＋ Import Agreement</Btn>
++        </div>
++        {deals.length === 0 && (
++          <div style={{ padding: '40px 0', textAlign: 'center', fontFamily: F.body, fontSize: 14, color: C.inkLight }}>
++            No agreements imported yet. Click "Import Agreement" to paste your first deal document.
++          </div>
++        )}
++        {deals.map(d => (
++          <div key={d.id} onClick={() => selectDeal(d)}
++            style={{ padding: '14px 16px', background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 8, cursor: 'pointer', transition: 'border-color 0.15s' }}
++            onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
++            onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
++            <div style={{ fontFamily: F.ui, fontSize: 14, fontWeight: 600, color: C.ink, marginBottom: 4 }}>{d.title}</div>
++            <div style={{ fontFamily: F.ui, fontSize: 12, color: C.inkLight }}>
++              {d.parties && <span>{d.parties} · </span>}
++              {d.filing_date && <span>{d.filing_date} · </span>}
++              <span style={{ fontFamily: 'monospace', fontSize: 10 }}>SHA: {d.text_hash?.slice(0, 12)}…</span>
++              {d.locked && <span style={{ marginLeft: 8, color: '#1A5C35', fontWeight: 700 }}>🔒</span>}
++            </div>
++          </div>
++        ))}
++      </div>
++    );
++  }
++
++  // ─── Import form ──────────
++  if (phase === 'import') {
++    return (
++      <div>
++        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
++          <Btn small onClick={() => setPhase('list')}>← Back</Btn>
++          <div style={{ fontFamily: F.display, fontSize: 18, color: C.ink }}>Import Agreement</div>
++        </div>
++        <div style={{ background: '#FFF8ED', border: `1px solid ${C.accent}`, borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
++          <div style={{ fontFamily: F.ui, fontSize: 12, fontWeight: 700, color: C.accent, marginBottom: 4 }}>⚠ Immutable after save</div>
++          <div style={{ fontFamily: F.body, fontSize: 13, color: C.inkMid, lineHeight: 1.6 }}>
++            Paste the verbatim agreement text below. Once saved, the document is hashed and locked — it cannot be edited. Clauses are then extracted as references to this source text.
++          </div>
++        </div>
++        <Section title="Deal Metadata">
++          <Field label="Agreement Title" value={importForm.title} onChange={v => setImportForm(f => ({ ...f, title: v }))} single hint="e.g. Agreement and Plan of Merger — Twitter, Inc. / X Holdings" />
++          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
++            <Field label="Parties" value={importForm.parties} onChange={v => setImportForm(f => ({ ...f, parties: v }))} single hint="e.g. X Holdings I, Inc. / Twitter, Inc." />
++            <Field label="Filing Date" value={importForm.filing_date} onChange={v => setImportForm(f => ({ ...f, filing_date: v }))} single hint="e.g. Apr. 25, 2022" />
++          </div>
++          <Field label="Source URL (SEC filing)" value={importForm.source_url} onChange={v => setImportForm(f => ({ ...f, source_url: v }))} single hint="EDGAR link to the agreement" />
++        </Section>
++        <Section title="Full Agreement Text">
++          <Field label="Paste entire agreement" value={importForm.full_text} onChange={v => setImportForm(f => ({ ...f, full_text: v }))} rows={20} hint="Paste verbatim — do not edit, summarize, or reformat" />
++          {importForm.full_text && (
++            <div style={{ fontFamily: 'monospace', fontSize: 11, color: C.inkLight, marginBottom: 12 }}>
++              {importForm.full_text.length.toLocaleString()} characters
++            </div>
++          )}
++        </Section>
++        <div style={{ display: 'flex', gap: 8 }}>
++          <Btn variant="ink" onClick={importDeal}>🔒 Import & Lock</Btn>
++          <Btn onClick={() => setPhase('list')}>Cancel</Btn>
++        </div>
++        {saved && <div style={{ fontFamily: F.ui, fontSize: 12, color: '#1A5C35', fontWeight: 700, marginTop: 8 }}>✓ Deal imported and locked</div>}
++      </div>
++    );
++  }
++
++  // ─── Document view + clause extraction ──────────
++  if (phase === 'view' || phase === 'extract') {
++    const provisionGroups = {};
++    for (const c of clauses) {
++      if (!provisionGroups[c.provision_id]) provisionGroups[c.provision_id] = [];
++      provisionGroups[c.provision_id].push(c);
++    }
++
++    return (
++      <div>
++        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
++          <Btn small onClick={() => { setPhase('list'); setSelectedDeal(null); setDealText(null); setClauses([]); }}>← Back</Btn>
++          <div>
++            <div style={{ fontFamily: F.display, fontSize: 18, color: C.ink }}>{selectedDeal?.title}</div>
++            <div style={{ fontFamily: 'monospace', fontSize: 10, color: C.inkLight }}>SHA-256: {selectedDeal?.text_hash?.slice(0, 24)}…</div>
++          </div>
++        </div>
++
++        {/* Extracted clauses */}
++        <Section title={`Extracted Clauses (${clauses.length})`}>
++          {clauses.length === 0 && (
++            <div style={{ fontFamily: F.body, fontSize: 13, color: C.inkLight, padding: '8px 0' }}>
++              No clauses extracted yet. Select text in the document below and click "Extract Clause."
++            </div>
++          )}
++          {Object.entries(provisionGroups).map(([provId, provClauses]) => (
++            <div key={provId} style={{ marginBottom: 12 }}>
++              <div style={{ fontFamily: F.ui, fontSize: 10, fontWeight: 700, color: C.accent, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6 }}>
++                {PROVISIONS.find(p => p.id === provId)?.title || provId}
++              </div>
++              {provClauses.map(c => (
++                <div key={c.id} style={{ padding: '10px 14px', background: C.white, border: `1px solid ${C.border}`, borderRadius: 7, marginBottom: 6 }}>
++                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
++                    <div>
++                      <div style={{ fontFamily: F.ui, fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>{c.label}</div>
++                      <div style={{ fontFamily: 'monospace', fontSize: 11, color: C.inkLight, lineHeight: 1.5, maxHeight: 44, overflow: 'hidden' }}>{c.text.slice(0, 150)}…</div>
++                    </div>
++                    <div style={{ display: 'flex', gap: 6, flexShrink: 0, marginLeft: 12 }}>
++                      <span style={{ fontFamily: 'monospace', fontSize: 9, color: C.inkFaint }}>{c.text_hash?.slice(0, 8)}</span>
++                      <span style={{ color: '#1A5C35', fontSize: 11 }}>🔒</span>
++                      <Btn small variant="danger" onClick={() => deleteClause(c.id)}>×</Btn>
++                    </div>
++                  </div>
++                </div>
++              ))}
++            </div>
++          ))}
++        </Section>
++
++        {/* Extract form (shown when text is selected) */}
++        {phase === 'extract' && (
++          <Section title="Extract Clause" defaultOpen={true}>
++            <div style={{ background: '#FFF8ED', border: `1px solid ${C.accent}`, borderRadius: 8, padding: '12px 16px', marginBottom: 12 }}>
++              <div style={{ fontFamily: F.ui, fontSize: 11, fontWeight: 700, color: C.accent, marginBottom: 4 }}>Selected text ({extractForm.text.length.toLocaleString()} chars)</div>
++              <div style={{ fontFamily: 'monospace', fontSize: 11, color: C.inkMid, lineHeight: 1.6, maxHeight: 100, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>{extractForm.text}</div>
++            </div>
++            <Field label="Clause Label" value={extractForm.label} onChange={v => setExtractForm(f => ({ ...f, label: v }))} single hint='e.g. "§ 2.1 — The Merger"' />
++            <div style={{ marginBottom: 16 }}>
++              <Label>Assign to Provision</Label>
++              <select value={extractForm.provision_id} onChange={e => setExtractForm(f => ({ ...f, provision_id: e.target.value }))}
++                style={{ width: '100%', padding: '9px 11px', fontFamily: F.ui, fontSize: 13, color: C.ink, background: C.white, border: `1px solid ${C.border}`, borderRadius: 7, outline: 'none', boxSizing: 'border-box' }}>
++                {PROVISIONS.map(p => <option key={p.id} value={p.id}>{p.number}. {p.title}</option>)}
++              </select>
++            </div>
++            <div style={{ display: 'flex', gap: 8 }}>
++              <Btn variant="ink" onClick={saveClause}>🔒 Save Clause</Btn>
++              <Btn onClick={() => { setPhase('view'); setExtractForm({ label: '', text: '', provision_id: extractForm.provision_id }); }}>Cancel</Btn>
++            </div>
++            {saved && <div style={{ fontFamily: F.ui, fontSize: 12, color: '#1A5C35', fontWeight: 700, marginTop: 8 }}>✓ Clause saved</div>}
++          </Section>
++        )}
++
++        {/* Full document viewer */}
++        <Section title="Source Document" defaultOpen={phase === 'view'}>
++          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
++            <div style={{ fontFamily: F.ui, fontSize: 11, color: C.inkLight }}>Select text below, then click "Extract Clause"</div>
++            <Btn small variant="accent" onClick={captureSelection}>✂ Extract Clause</Btn>
++          </div>
++          <div ref={docRef}
++            style={{
++              padding: '20px 24px', background: C.white, border: `1px solid ${C.border}`, borderRadius: 8,
++              fontFamily: F.body, fontSize: 13, color: C.ink, lineHeight: 1.9,
++              maxHeight: 500, overflowY: 'auto', whiteSpace: 'pre-wrap', userSelect: 'text', cursor: 'text',
++            }}>
++            {dealText?.full_text || 'Loading…'}
++          </div>
++          <div style={{ fontFamily: 'monospace', fontSize: 10, color: C.inkFaint, marginTop: 6 }}>
++            {dealText?.full_text?.length?.toLocaleString()} characters · SHA-256: {dealText?.text_hash}
++          </div>
++        </Section>
++      </div>
++    );
++  }
++
++  return null;
++}
++
+ function DefinedTermsEditor({ adminPw }) {
+   const [terms, setTerms] = useState(Object.values(DEFINED_TERMS));
+   const [selected, setSelected] = useState(Object.values(DEFINED_TERMS)[0]?.id || null);
+@@ -772,7 +1082,7 @@ export default function AdminEdit() {
+   }
+ 
+   const needsLevel = ['explainer', 'qa', 'war_stories', 'annotations'].includes(tab);
+-  const needsProvision = !['defined_terms', 'cases', 'concepts'].includes(tab);
++  const needsProvision = !['defined_terms', 'cases', 'concepts', 'source_docs'].includes(tab);
+   const aiContext = `Provision: ${PROVISIONS.find(p => p.id === provision)?.title || ''}. Level: ${level}. Content type: ${TAB_LABELS[tab]}.`;
+ 
+   return (
+@@ -786,6 +1096,7 @@ export default function AdminEdit() {
+             <span style={{ fontFamily: F.ui, fontSize: 10, fontWeight: 700, color: C.accent, background: '#FFF3E0', borderRadius: 4, padding: '3px 7px' }}>ADMIN</span>
+           </div>
+           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
++            <a href="/admin/documents" style={{ fontFamily: F.ui, fontSize: 12, color: C.inkLight, textDecoration: 'none' }}>Source Documents</a>
+             <a href="/admin/structure" style={{ fontFamily: F.ui, fontSize: 12, color: C.inkLight, textDecoration: 'none' }}>Provisions & Folders</a>
+             <a href="/" target="_blank" style={{ fontFamily: F.ui, fontSize: 12, color: C.inkLight, textDecoration: 'none' }}>View site →</a>
+             <button onClick={() => { sessionStorage.removeItem('corpus_admin_pw'); router.push('/admin/login'); }}
+@@ -833,6 +1144,7 @@ export default function AdminEdit() {
+               </div>
+             )}
+ 
++            {tab === 'source_docs'  && <SourceDocumentsEditor adminPw={adminPw} />}
+             {tab === 'explainer'     && <ExplainerEditor  provision={provision} level={level} adminPw={adminPw} />}
+             {tab === 'qa'            && <QAEditor          provision={provision} level={level} adminPw={adminPw} onNavigateTo={navigateTo} allConcepts={allConcepts} allCases={allCases} />}
+             {tab === 'war_stories'   && <WarStoriesEditor  provision={provision} level={level} adminPw={adminPw} onNavigateTo={navigateTo} allConcepts={allConcepts} allCases={allCases} />}
+diff --git a/pages/api/admin/save.js b/pages/api/admin/save.js
+index 46881cf..e62c034 100644
+--- a/pages/api/admin/save.js
++++ b/pages/api/admin/save.js
+@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
+ const ALLOWED_TABLES = [
+   'explainers', 'qa', 'war_stories', 'negotiation_points',
+   'annotations', 'defined_terms', 'cases', 'concepts',
++  'deals', 'clauses', 'provisions', 'categories',
+ ];
+ 
+ function getClient() {
+diff --git a/supabase/schema-additions.sql b/supabase/schema-additions.sql
+index 9e29f3f..d15a1e3 100644
+--- a/supabase/schema-additions.sql
++++ b/supabase/schema-additions.sql
+@@ -2,21 +2,8 @@
+ -- Run this in Supabase SQL Editor AFTER the main schema.sql
+ -- Safe to re-run
+ 
+--- ─── Categories (for concepts and cases) ─────────────────────────────────────
+-
+-create table if not exists categories (
+-  id text primary key,
+-  slug text not null unique,
+-  label text not null,
+-  type text not null,          -- 'concept' | 'case'
+-  description text,
+-  icon text,                   -- emoji or short string
+-  sort_order int default 0,
+-  parent_id text references categories(id),  -- for nested folders
+-  updated_at timestamptz default now()
+-);
+-
+ -- ─── Provisions (as DB objects) ───────────────────────────────────────────────
++-- Must be created before clauses (which references provisions)
+ 
+ create table if not exists provisions (
+   id text primary key,
+@@ -45,6 +32,66 @@ insert into provisions (id, number, title, deal, deal_date, sections, sort_order
+   ('boilerplate',  11, 'Boilerplate',             'Twitter / X Holdings', 'Apr. 25, 2022', 'Art. IX',    11)
+ on conflict (id) do nothing;
+ 
++-- ─── Deals (immutable source documents) ──────────────────────────────────────
++
++create table if not exists deals (
++  id text primary key,
++  title text not null,
++  parties text,
++  filing_date text,
++  source_url text,
++  full_text text not null,
++  text_hash text not null,
++  locked boolean default true,
++  created_at timestamptz default now(),
++  updated_at timestamptz default now()
++);
++
++-- ─── Clauses (discrete text extracts from deals) ────────────────────────────
++
++create table if not exists clauses (
++  id text primary key,
++  deal_id text not null references deals(id),
++  provision_id text not null references provisions(id),
++  label text not null,
++  text text not null,
++  text_hash text not null,
++  sort_order int default 0,
++  locked boolean default true,
++  created_at timestamptz default now(),
++  updated_at timestamptz default now()
++);
++
++-- ─── RLS for deals, clauses, provisions ─────────────────────────────────────
++
++alter table deals enable row level security;
++alter table clauses enable row level security;
++alter table provisions enable row level security;
++
++do $$ begin
++  create policy "Public read" on deals for select using (true);
++exception when duplicate_object then null; end $$;
++do $$ begin
++  create policy "Public read" on clauses for select using (true);
++exception when duplicate_object then null; end $$;
++do $$ begin
++  create policy "Public read" on provisions for select using (true);
++exception when duplicate_object then null; end $$;
++
++-- ─── Categories (for concepts and cases) ─────────────────────────────────────
++
++create table if not exists categories (
++  id text primary key,
++  slug text not null unique,
++  label text not null,
++  type text not null,          -- 'concept' | 'case'
++  description text,
++  icon text,                   -- emoji or short string
++  sort_order int default 0,
++  parent_id text references categories(id),  -- for nested folders
++  updated_at timestamptz default now()
++);
++
+ -- ─── Add category_id to concepts and cases ────────────────────────────────────
+ 
+ alter table concepts add column if not exists category_id text references categories(id);
+@@ -73,11 +120,7 @@ on conflict (id) do nothing;
+ -- ─── RLS for new tables ───────────────────────────────────────────────────────
+ 
+ alter table categories enable row level security;
+-alter table provisions enable row level security;
+ 
+ do $$ begin
+   create policy "Public read" on categories for select using (true);
+ exception when duplicate_object then null; end $$;
+-do $$ begin
+-  create policy "Public read" on provisions for select using (true);
+-exception when duplicate_object then null; end $$;
+-- 
+2.43.0
+
