@@ -27,7 +27,12 @@ async function apiSave(table, record, adminPw) {
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminPw}` },
     body: JSON.stringify({ table, record }),
   });
-  if (!res.ok) throw new Error((await res.json()).error || 'Save failed');
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const msg = body.error || `Save failed (${res.status})`;
+    console.error(`[CORPUS] Save to ${table} failed:`, msg, body.code || '');
+    throw new Error(msg);
+  }
   return res.json();
 }
 
@@ -307,6 +312,7 @@ function ExplainerEditor({ provision, level, adminPw }) {
   const initial = EXPLAINERS[provision]?.[level] || { headline: '', body: '' };
   const [data, setData] = useState(initial);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     (async () => {
@@ -319,12 +325,16 @@ function ExplainerEditor({ provision, level, adminPw }) {
     })();
   }, []);
   async function save() {
-    await apiSave('explainers', { id: `${provision}-${level}`, provision_id: provision, level, ...data }, adminPw);
-    setSaved(true); setTimeout(() => setSaved(false), 2000);
+    setError(null);
+    try {
+      await apiSave('explainers', { id: `${provision}-${level}`, provision_id: provision, level, ...data }, adminPw);
+      setSaved(true); setTimeout(() => setSaved(false), 2000);
+    } catch (e) { setError(e.message); }
   }
   if (loading) return <div style={{ fontFamily: F.ui, fontSize: 13, color: C.inkLight, padding: 20 }}>Loading…</div>;
   return (
     <div>
+      {error && <div style={{ fontFamily: F.ui, fontSize: 12, color: '#c0392b', background: '#fdf0ef', border: '1px solid #e6b0aa', borderRadius: 6, padding: '8px 12px', marginBottom: 12 }}>⚠ {error}</div>}
       <Field label="Headline" value={data.headline} onChange={v => setData(d => ({ ...d, headline: v }))} single />
       <Field label="Body" value={data.body} onChange={v => setData(d => ({ ...d, body: v }))} rows={14}
         hint="Blank line = new paragraph. Embed: [[concept:slug]]  [[case:id]]" />
@@ -337,6 +347,7 @@ function QAEditor({ provision, level, adminPw, onNavigateTo, allConcepts, allCas
   const initial = QA_DATABASE.filter(q => q.provision_id === provision && q.level === level);
   const [items, setItems] = useState(initial.length ? initial : [{ id: `${provision}-${level}-q1`, provision_id: provision, level, question: '', answer: '', concepts: [], cases: [] }]);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     (async () => {
@@ -351,12 +362,13 @@ function QAEditor({ provision, level, adminPw, onNavigateTo, allConcepts, allCas
 
   function update(i, k, v) { setItems(items => items.map((item, idx) => idx === i ? { ...item, [k]: v } : item)); }
   function add() { setItems(items => [...items, { id: `${provision}-${level}-q${Date.now()}`, provision_id: provision, level, question: '', answer: '', concepts: [], cases: [] }]); }
-  async function save() { for (const item of items) await apiSave('qa', item, adminPw); setSaved(true); setTimeout(() => setSaved(false), 2000); }
+  async function save() { setError(null); try { for (const item of items) await apiSave('qa', item, adminPw); setSaved(true); setTimeout(() => setSaved(false), 2000); } catch (e) { setError(e.message); } }
   async function remove(item) { await apiDelete('qa', item.id, adminPw); setItems(items => items.filter(i => i.id !== item.id)); }
 
   if (loading) return <div style={{ fontFamily: F.ui, fontSize: 13, color: C.inkLight, padding: 20 }}>Loading…</div>;
   return (
     <div>
+      {error && <div style={{ fontFamily: F.ui, fontSize: 12, color: '#c0392b', background: '#fdf0ef', border: '1px solid #e6b0aa', borderRadius: 6, padding: '8px 12px', marginBottom: 12 }}>⚠ {error}</div>}
       {items.map((item, i) => (
         <div key={item.id} style={{ marginBottom: 18, padding: '16px 18px', background: C.white, border: `1px solid ${C.border}`, borderRadius: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -378,6 +390,7 @@ function WarStoriesEditor({ provision, level, adminPw, onNavigateTo, allConcepts
   const initial = WAR_STORIES.filter(s => s.provision_id === provision && s.level === level);
   const [items, setItems] = useState(initial.length ? initial : [{ id: `${provision}-${level}-ws1`, provision_id: provision, level, title: '', story: '', concepts: [], cases: [] }]);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     (async () => {
@@ -391,12 +404,13 @@ function WarStoriesEditor({ provision, level, adminPw, onNavigateTo, allConcepts
   }, []);
 
   function update(i, k, v) { setItems(items => items.map((item, idx) => idx === i ? { ...item, [k]: v } : item)); }
-  async function save() { for (const item of items) await apiSave('war_stories', item, adminPw); setSaved(true); setTimeout(() => setSaved(false), 2000); }
+  async function save() { setError(null); try { for (const item of items) await apiSave('war_stories', item, adminPw); setSaved(true); setTimeout(() => setSaved(false), 2000); } catch (e) { setError(e.message); } }
   async function remove(item) { await apiDelete('war_stories', item.id, adminPw); setItems(items => items.filter(i => i.id !== item.id)); }
 
   if (loading) return <div style={{ fontFamily: F.ui, fontSize: 13, color: C.inkLight, padding: 20 }}>Loading…</div>;
   return (
     <div>
+      {error && <div style={{ fontFamily: F.ui, fontSize: 12, color: '#c0392b', background: '#fdf0ef', border: '1px solid #e6b0aa', borderRadius: 6, padding: '8px 12px', marginBottom: 12 }}>⚠ {error}</div>}
       {items.map((item, i) => (
         <div key={item.id} style={{ marginBottom: 18, padding: '16px 18px', background: C.white, border: `1px solid ${C.border}`, borderRadius: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -421,6 +435,7 @@ function NegotiationEditor({ provision, adminPw, onNavigateTo, allConcepts, allC
   const initial = NEGOTIATION_POINTS[provision] || [];
   const [items, setItems] = useState(initial.length ? initial : [{ id: `${provision}-np1`, provision_id: provision, title: '', deal_context: '', buyer_position: '', seller_position: '', key_points: [], concepts: [], cases: [] }]);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     (async () => {
@@ -434,11 +449,12 @@ function NegotiationEditor({ provision, adminPw, onNavigateTo, allConcepts, allC
   }, []);
 
   function update(i, k, v) { setItems(items => items.map((item, idx) => idx === i ? { ...item, [k]: v } : item)); }
-  async function save() { for (const item of items) await apiSave('negotiation_points', item, adminPw); setSaved(true); setTimeout(() => setSaved(false), 2000); }
+  async function save() { setError(null); try { for (const item of items) await apiSave('negotiation_points', item, adminPw); setSaved(true); setTimeout(() => setSaved(false), 2000); } catch (e) { setError(e.message); } }
 
   if (loading) return <div style={{ fontFamily: F.ui, fontSize: 13, color: C.inkLight, padding: 20 }}>Loading…</div>;
   return (
     <div>
+      {error && <div style={{ fontFamily: F.ui, fontSize: 12, color: '#c0392b', background: '#fdf0ef', border: '1px solid #e6b0aa', borderRadius: 6, padding: '8px 12px', marginBottom: 12 }}>⚠ {error}</div>}
       {items.map((item, i) => (
         <div key={item.id} style={{ marginBottom: 18, padding: '16px 18px', background: C.white, border: `1px solid ${C.border}`, borderRadius: 8 }}>
           <span style={{ fontFamily: F.ui, fontSize: 11, fontWeight: 700, color: C.accent, display: 'block', marginBottom: 12 }}>Point {i + 1}</span>
