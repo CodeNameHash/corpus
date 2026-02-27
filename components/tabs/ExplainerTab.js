@@ -14,9 +14,9 @@ export default function ExplainerTab({ provisionId, level }) {
 
   const { data, loading } = useSupabaseData(
     async (sb) => {
-      const { data: row } = await sb.from('explainers').select('*')
-        .eq('provision_id', provisionId).eq('level', level).single();
-      return row || null;
+      const { data: rows } = await sb.from('explainers').select('*')
+        .eq('provision_id', provisionId).eq('level', level).limit(1);
+      return rows?.[0] || null;
     },
     staticData,
     [provisionId, level]

@@ -29,8 +29,8 @@ export async function getExplainer(provisionId, level) {
     try {
       const client = await db();
       const { data } = await client.from('explainers').select('*')
-        .eq('provision_id', provisionId).eq('level', level).single();
-      if (data) return data;
+        .eq('provision_id', provisionId).eq('level', level).limit(1);
+      if (data?.[0]) return data[0];
     } catch {}
   }
   return EXPLAINERS[provisionId]?.[level] || null;
@@ -132,8 +132,8 @@ export async function getDefinedTerm(id) {
   if (HAS_SUPABASE) {
     try {
       const client = await db();
-      const { data } = await client.from('defined_terms').select('*').eq('id', id).single();
-      if (data) return { ...data, long: data.long_def, short: data.short_def };
+      const { data } = await client.from('defined_terms').select('*').eq('id', id).limit(1);
+      if (data?.[0]) return { ...data[0], long: data[0].long_def, short: data[0].short_def };
     } catch {}
   }
   return Object.values(DEFINED_TERMS).find(t => t.id === id) || null;
@@ -159,8 +159,8 @@ export async function getCase(id) {
   if (HAS_SUPABASE) {
     try {
       const client = await db();
-      const { data } = await client.from('cases').select('*').eq('id', id).single();
-      if (data) return data;
+      const { data } = await client.from('cases').select('*').eq('id', id).limit(1);
+      if (data?.[0]) return data[0];
     } catch {}
   }
   return CASES[id] || null;
@@ -186,8 +186,8 @@ export async function getConcept(slug) {
   if (HAS_SUPABASE) {
     try {
       const client = await db();
-      const { data } = await client.from('concepts').select('*').eq('slug', slug).single();
-      if (data) return data;
+      const { data } = await client.from('concepts').select('*').eq('slug', slug).limit(1);
+      if (data?.[0]) return data[0];
     } catch {}
   }
   return CONCEPTS[slug] || null;
@@ -226,8 +226,8 @@ export async function getDeal(dealId) {
   if (HAS_SUPABASE) {
     try {
       const client = await db();
-      const { data } = await client.from('deals').select('*').eq('id', dealId).single();
-      if (data) return data;
+      const { data } = await client.from('deals').select('*').eq('id', dealId).limit(1);
+      if (data?.[0]) return data[0];
     } catch {}
   }
   return null;
@@ -258,8 +258,9 @@ export async function getClauses(provisionId) {
       if (clauses?.length) {
         // Fetch the deal text to resolve the windows
         const dealId = clauses[0].deal_id;
-        const { data: deal } = await client.from('deals').select('full_text').eq('id', dealId).single();
-        if (deal) {
+        const { data: deals } = await client.from('deals').select('full_text').eq('id', dealId).limit(1);
+        if (deals?.[0]) {
+          const deal = deals[0];
           return clauses.map(c => ({
             id: c.id,
             label: c.label,

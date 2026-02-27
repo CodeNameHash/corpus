@@ -317,9 +317,9 @@ function ExplainerEditor({ provision, level, adminPw }) {
   useEffect(() => {
     (async () => {
       try {
-        const { data: row } = await supabase.from('explainers').select('*')
-          .eq('provision_id', provision).eq('level', level).single();
-        if (row) setData(row);
+        const { data: rows } = await supabase.from('explainers').select('*')
+          .eq('provision_id', provision).eq('level', level).limit(1);
+        if (rows?.[0]) setData(rows[0]);
       } catch {}
       setLoading(false);
     })();
@@ -572,8 +572,8 @@ function SourceDocumentsEditor({ adminPw }) {
   async function loadDealText(dealId) {
     try {
       const mod = await import('../../lib/supabase');
-      const { data } = await mod.supabase.from('deals').select('id, full_text, text_hash').eq('id', dealId).single();
-      if (data) setDealText(data);
+      const { data: rows } = await mod.supabase.from('deals').select('id, full_text, text_hash').eq('id', dealId).limit(1);
+      if (rows?.[0]) setDealText(rows[0]);
     } catch {}
   }
 
