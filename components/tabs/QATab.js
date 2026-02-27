@@ -1,15 +1,27 @@
 import { useState } from 'react';
 import { QA_DATABASE } from '../../data/qa';
 import { C, F } from '../../data/tokens';
+import { useSupabaseData } from '../../lib/useSupabaseData';
 
 export default function QATab({ provisionId, level }) {
   const [open, setOpen] = useState(null);
   const [search, setSearch] = useState('');
 
-  const questions = QA_DATABASE.filter(q =>
-    q.provision_id === provisionId &&
-    q.level === level &&
-    (search === '' || q.question.toLowerCase().includes(search.toLowerCase()) || q.answer.toLowerCase().includes(search.toLowerCase()))
+  const staticQA = QA_DATABASE.filter(q => q.provision_id === provisionId && q.level === level);
+
+  const { data: allQuestions } = useSupabaseData(
+    async (sb) => {
+      const { data } = await sb.from('qa').select('*')
+        .eq('provision_id', provisionId).eq('level', level)
+        .order('sort_order', { ascending: true });
+      return data?.length ? data : null;
+    },
+    staticQA,
+    [provisionId, level]
+  );
+
+  const questions = allQuestions.filter(q =>
+    search === '' || q.question.toLowerCase().includes(search.toLowerCase()) || q.answer.toLowerCase().includes(search.toLowerCase())
   );
 
   return (

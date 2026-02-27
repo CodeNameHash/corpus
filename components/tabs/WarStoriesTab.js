@@ -1,8 +1,20 @@
 import { WAR_STORIES } from '../../data/warStories';
 import { C, F } from '../../data/tokens';
+import { useSupabaseData } from '../../lib/useSupabaseData';
 
 export default function WarStoriesTab({ provisionId, level }) {
-  const stories = WAR_STORIES.filter(s => s.provision_id === provisionId && s.level === level);
+  const staticStories = WAR_STORIES.filter(s => s.provision_id === provisionId && s.level === level);
+
+  const { data: stories } = useSupabaseData(
+    async (sb) => {
+      const { data } = await sb.from('war_stories').select('*')
+        .eq('provision_id', provisionId).eq('level', level)
+        .order('sort_order', { ascending: true });
+      return data?.length ? data : null;
+    },
+    staticStories,
+    [provisionId, level]
+  );
   if (!stories.length) return (
     <div style={{ padding: '60px 0', textAlign: 'center', fontFamily: F.body, fontSize: 14, color: C.inkLight }}>
       No war stories for this level yet.

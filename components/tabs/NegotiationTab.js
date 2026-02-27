@@ -1,8 +1,20 @@
 import { NEGOTIATION_POINTS } from '../../data/negotiationPoints';
 import { C, F } from '../../data/tokens';
+import { useSupabaseData } from '../../lib/useSupabaseData';
 
 export default function NegotiationTab({ provisionId }) {
-  const points = NEGOTIATION_POINTS[provisionId];
+  const staticPoints = NEGOTIATION_POINTS[provisionId] || [];
+
+  const { data: points } = useSupabaseData(
+    async (sb) => {
+      const { data } = await sb.from('negotiation_points').select('*')
+        .eq('provision_id', provisionId)
+        .order('sort_order', { ascending: true });
+      return data?.length ? data : null;
+    },
+    staticPoints,
+    [provisionId]
+  );
   if (!points || !points.length) return (
     <div style={{ padding: '60px 0', textAlign: 'center' }}>
       <div style={{ fontFamily: F.display, fontSize: 22, color: C.inkLight }}>Coming Soon</div>
