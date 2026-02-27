@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
-import { PROVISIONS } from '../data/provisions';
+import { PROVISIONS as STATIC_PROVISIONS } from '../data/provisions';
 import { C, F, LEVELS, GOOGLE_FONTS } from '../data/tokens';
 import TermPanel from './TermPanel';
 import ExplainerTab from './tabs/ExplainerTab';
@@ -21,7 +21,13 @@ const TABS = [
   { id: 'precedent',   label: 'Precedent Bank' },
 ];
 
+const HAS_SUPABASE =
+  typeof window !== 'undefined' &&
+  process.env.NEXT_PUBLIC_SUPABASE_URL &&
+  !process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder');
+
 export default function CorpusApp() {
+  const [provisions, setProvisions] = useState(STATIC_PROVISIONS);
   const [activeProvision, setActiveProvision] = useState('structure');
   const [activeTab, setActiveTab] = useState('explainer');
   const [level, setLevel] = useState('junior');
@@ -29,6 +35,7 @@ export default function CorpusApp() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
+  // Responsive check
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
     check();
@@ -36,7 +43,28 @@ export default function CorpusApp() {
     return () => window.removeEventListener('resize', check);
   }, []);
 
-  const provision = PROVISIONS.find(p => p.id === activeProvision);
+  // Fetch provisions from Supabase; fall back to static data on failure
+  useEffect(() => {
+    if (!HAS_SUPABASE) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { supabase } = await import('../lib/supabase');
+        const { data, error } = await supabase
+          .from('provisions')
+          .select('*')
+          .order('sort_order', { ascending: true });
+        if (!cancelled && !error && data?.length) {
+          setProvisions(data);
+        }
+      } catch {
+        // silently keep static fallback
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const provision = provisions.find(p => p.id === activeProvision);
 
   function handleProvisionClick(id) {
     setActiveProvision(id);
@@ -111,7 +139,7 @@ export default function CorpusApp() {
             <div style={{ padding: '20px 20px 8px' }}>
               <div style={{ fontFamily: F.ui, fontSize: 10, fontWeight: 600, letterSpacing: 2, color: C.inkFaint, textTransform: 'uppercase' }}>The Merger Agreement</div>
             </div>
-            {PROVISIONS.map(p => (
+            {provisions.map(p => (
               <button
                 key={p.id}
                 onClick={() => handleProvisionClick(p.id)}
